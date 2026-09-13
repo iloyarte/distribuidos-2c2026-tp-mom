@@ -29,11 +29,7 @@ func NewQueueMiddleware(connectionSettings m.ConnSettings, queueName string) m.M
 }
 
 func (qMiddleware QueueMiddleware) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack func())) error {
-	err := qMiddleware.connector.consumeQueue(qMiddleware.queueName, qMiddleware.queueName, callbackFunc)
-	if err != nil {
-		return err
-	}
-	return nil
+	return qMiddleware.connector.consumeQueue(qMiddleware.queueName, qMiddleware.queueName, callbackFunc)
 }
 
 func (qMiddleware QueueMiddleware) StopConsuming() error {
@@ -41,8 +37,7 @@ func (qMiddleware QueueMiddleware) StopConsuming() error {
 }
 
 func (qMiddleware QueueMiddleware) Send(msg m.Message) error {
-	//TODO implement me
-	panic("implement me")
+	return qMiddleware.connector.publish(msg, "", qMiddleware.queueName)
 }
 
 func (qMiddleware QueueMiddleware) Close() error {

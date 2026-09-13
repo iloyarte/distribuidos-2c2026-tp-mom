@@ -35,11 +35,7 @@ func (eMiddleware *ExchangeMiddleware) StartConsuming(callbackFunc func(msg m.Me
 	if err != nil {
 		return err
 	}
-	err = eMiddleware.connector.consumeQueue(eMiddleware.exchangeQueue, eMiddleware.exchangeName, callbackFunc)
-	if err != nil {
-		return err
-	}
-	return nil
+	return eMiddleware.connector.consumeQueue(eMiddleware.exchangeQueue, eMiddleware.exchangeName, callbackFunc)
 }
 
 func (eMiddleware *ExchangeMiddleware) bindQueues() error {
