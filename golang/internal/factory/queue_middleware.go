@@ -10,22 +10,30 @@ type QueueMiddleware struct {
 	queueName string
 }
 
-func NewQueueMiddleware(connectionSettings m.ConnSettings, queueName string) m.Middleware {
-	connector := NewRabbitConnector(connectionSettings)
-	_, err := connector.declareQueue(
+func NewQueueMiddleware(connectionSettings m.ConnSettings, queueName string) (m.Middleware, error) {
+	connector, err := NewRabbitConnector(connectionSettings)
+	if err != nil {
+		return nil, err
+	}
+	err = declareQueue(err, connector, queueName)
+	if err != nil {
+		return nil, err
+	}
+	return &QueueMiddleware{
+		connector: connector,
+		queueName: queueName,
+	}, nil
+}
+
+func declareQueue(err error, connector *RabbitConnector, queueName string) error {
+	_, err = connector.declareQueue(
 		queueName,
 		false,
 		amqp.Table{
 			amqp.QueueTypeArg: amqp.QueueTypeQuorum,
 		},
 	)
-	if err != nil {
-		return nil
-	}
-	return &QueueMiddleware{
-		connector: connector,
-		queueName: queueName,
-	}
+	return err
 }
 
 func (qMiddleware QueueMiddleware) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack func())) error {
@@ -36,14 +44,10 @@ func (qMiddleware QueueMiddleware) StopConsuming() error {
 	return qMiddleware.connector.stopConsuming(qMiddleware.queueName)
 }
 
-func (qMiddleware QueueMiddleware) Send(msg m.Message) error {
+func (qMiddleware *QueueMiddleware) Send(msg m.Message) error {
 	return qMiddleware.connector.publish(msg, "", qMiddleware.queueName)
 }
 
-func (qMiddleware QueueMiddleware) Close() error {
-	err := qMiddleware.connector.closeConnections()
-	if err != nil {
-		return err
-	}
-	return nil
+func (qMiddleware *QueueMiddleware) Close() error {
+	return qMiddleware.connector.closeConnections()
 }

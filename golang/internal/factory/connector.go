@@ -16,23 +16,31 @@ type RabbitConnector struct {
 	connection         *amqp.Connection
 }
 
-func NewRabbitConnector(settings m.ConnSettings) *RabbitConnector {
-	connection, channel := openConnection(settings)
+func NewRabbitConnector(settings m.ConnSettings) (*RabbitConnector, error) {
+	connection, channel, err := openConnection(settings)
+	if err != nil {
+		return nil, err
+	}
 	return &RabbitConnector{
 		connectionSettings: settings,
 		connection:         connection,
 		channel:            channel,
-	}
+	}, nil
 }
 
-func openConnection(settings m.ConnSettings) (*amqp.Connection, *amqp.Channel) {
+func openConnection(settings m.ConnSettings) (*amqp.Connection, *amqp.Channel, error) {
 	url := fmt.Sprintf("amqp://guest:guest@%s:%d", settings.Hostname, settings.Port)
 	conn, err := amqp.Dial(url)
+	if err != nil {
+		return nil, nil, m.ErrMessageMiddlewareDisconnected
+	}
 
-	failOnError(err, "Failed to connect to RabbitMQ")
 	ch, err := conn.Channel()
-	failOnError(err, "Failed to open a channel")
-	return conn, ch
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil, m.ErrMessageMiddlewareDisconnected
+	}
+	return conn, ch, nil
 }
 
 func (rc *RabbitConnector) declareQueue(queueName string, autoDelete bool, args amqp.Table) (amqp.Queue, error) {
@@ -43,7 +51,9 @@ func (rc *RabbitConnector) declareQueue(queueName string, autoDelete bool, args 
 		false,      // exclusive
 		false,      // no-wait
 		args)
-	failOnError(err, "Failed to declare a queue")
+	if err != nil {
+		return amqp.Queue{}, m.ErrMessageMiddlewareMessage
+	}
 	return queue, nil
 }
 
@@ -58,7 +68,7 @@ func (rc *RabbitConnector) declareExchange(exchangeName string) error {
 		nil,          // arguments
 	)
 	if err != nil {
-		return nil
+		return m.ErrMessageMiddlewareMessage
 	}
 
 	return nil
@@ -67,7 +77,7 @@ func (rc *RabbitConnector) declareExchange(exchangeName string) error {
 func (rc *RabbitConnector) bindQueue(queue string, key string, exchange string) error {
 	err := rc.channel.QueueBind(queue, key, exchange, false, nil)
 	if err != nil {
-		return err
+		return m.ErrMessageMiddlewareMessage
 	}
 	return nil
 }
@@ -87,7 +97,7 @@ func (rc *RabbitConnector) consumeQueue(
 		nil,      // args
 	)
 	if err != nil {
-		return err
+		return m.ErrMessageMiddlewareDisconnected
 	}
 	go func() {
 		for msg := range queueChannel {
@@ -104,7 +114,7 @@ func (rc *RabbitConnector) consumeQueue(
 func (rc *RabbitConnector) stopConsuming(consumerTag string) error {
 	err := rc.channel.Cancel(consumerTag, false)
 	if err != nil {
-		return err
+		return m.ErrMessageMiddlewareDisconnected
 	}
 	return nil
 }
@@ -112,7 +122,7 @@ func (rc *RabbitConnector) stopConsuming(consumerTag string) error {
 func (rc *RabbitConnector) publish(msg m.Message, exchange string, routingKey string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return rc.channel.PublishWithContext(ctx,
+	err := rc.channel.PublishWithContext(ctx,
 		exchange,   // exchange
 		routingKey, // routing key
 		false,      // mandatory
@@ -121,40 +131,33 @@ func (rc *RabbitConnector) publish(msg m.Message, exchange string, routingKey st
 			ContentType: "text/plain",
 			Body:        []byte(msg.Body),
 		})
+	if err != nil {
+		return m.ErrMessageMiddlewareDisconnected
+	}
+	return nil
 }
 
 func (rc *RabbitConnector) closeConnections() error {
-	err := rc.channel.Close()
-	if err != nil {
-		return err
-	}
-	err = rc.connection.Close()
-	if err != nil {
-		return err
+	channelErr := rc.channel.Close()
+	connectionErr := rc.connection.Close()
+	if channelErr != nil || connectionErr != nil {
+		return m.ErrMessageMiddlewareClose
 	}
 	return nil
 }
 
 func (rc *RabbitConnector) nack(msg amqp.Delivery) func() {
 	return func() {
-		err := msg.Nack(false, true)
-		if err != nil {
-			return
+		if err := msg.Nack(false, true); err != nil {
+			log.Printf("Failed to nack message: %v", err)
 		}
 	}
 }
 
 func (rc *RabbitConnector) ack(msg amqp.Delivery) func() {
 	return func() {
-		err := msg.Ack(false)
-		if err != nil {
-			return
+		if err := msg.Ack(false); err != nil {
+			log.Printf("Failed to ack message: %v", err)
 		}
-	}
-}
-
-func failOnError(err error, msg string) {
-	if err != nil {
-		log.Panicf("%s: %s", msg, err)
 	}
 }

@@ -12,8 +12,11 @@ type ExchangeMiddleware struct {
 }
 
 func NewExchangeMiddleware(connectionSettings m.ConnSettings, exchangeName string, keys []string) (*ExchangeMiddleware, error) {
-	connector := NewRabbitConnector(connectionSettings)
-	err := connector.declareExchange(exchangeName)
+	connector, err := NewRabbitConnector(connectionSettings)
+	if err != nil {
+		return nil, err
+	}
+	err = connector.declareExchange(exchangeName)
 	if err != nil {
 		return nil, err
 	}
