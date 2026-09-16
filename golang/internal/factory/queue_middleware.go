@@ -36,11 +36,11 @@ func declareQueue(err error, connector *RabbitConnector, queueName string) error
 	return err
 }
 
-func (qMiddleware QueueMiddleware) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack func())) error {
+func (qMiddleware *QueueMiddleware) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack func())) error {
 	return qMiddleware.connector.consumeQueue(qMiddleware.queueName, qMiddleware.queueName, callbackFunc)
 }
 
-func (qMiddleware QueueMiddleware) StopConsuming() error {
+func (qMiddleware *QueueMiddleware) StopConsuming() error {
 	return qMiddleware.connector.stopConsuming(qMiddleware.queueName)
 }
 
