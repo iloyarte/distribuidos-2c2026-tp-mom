@@ -11,7 +11,7 @@ type ExchangeMiddleware struct {
 	routingKeys   []string
 }
 
-func NewExchangeMiddleware(connectionSettings m.ConnSettings, exchangeName string, keys []string) (*ExchangeMiddleware, error) {
+func NewExchangeMiddleware(connectionSettings m.ConnSettings, exchangeName string, keys []string) (m.Middleware, error) {
 	connector, err := NewRabbitConnector(connectionSettings)
 	if err != nil {
 		return nil, err
@@ -20,21 +20,21 @@ func NewExchangeMiddleware(connectionSettings m.ConnSettings, exchangeName strin
 	if err != nil {
 		return nil, err
 	}
-	queue, err := connector.declareQueue("", true, nil)
-	if err != nil {
-		return nil, err
-	}
 
 	return &ExchangeMiddleware{
-		exchangeName:  exchangeName,
-		connector:     connector,
-		exchangeQueue: queue.Name,
-		routingKeys:   keys,
+		exchangeName: exchangeName,
+		connector:    connector,
+		routingKeys:  keys,
 	}, nil
 }
 
 func (eMiddleware *ExchangeMiddleware) StartConsuming(callbackFunc func(msg m.Message, ack func(), nack func())) error {
-	err := eMiddleware.bindQueues()
+	queue, err := eMiddleware.connector.declareQueue("", true, false, true, nil)
+	if err != nil {
+		return err
+	}
+	eMiddleware.exchangeQueue = queue.Name
+	err = eMiddleware.bindQueues()
 	if err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func (eMiddleware *ExchangeMiddleware) bindQueues() error {
 	for _, key := range eMiddleware.routingKeys {
 		err := eMiddleware.connector.bindQueue(eMiddleware.exchangeQueue, key, eMiddleware.exchangeName)
 		if err != nil {
-			return nil
+			return m.ErrMessageMiddlewareMessage
 		}
 	}
 	return nil

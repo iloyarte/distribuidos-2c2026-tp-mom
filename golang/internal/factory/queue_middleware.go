@@ -15,7 +15,7 @@ func NewQueueMiddleware(connectionSettings m.ConnSettings, queueName string) (m.
 	if err != nil {
 		return nil, err
 	}
-	err = declareQueue(err, connector, queueName)
+	err = declareQueue(connector, queueName)
 	if err != nil {
 		return nil, err
 	}
@@ -25,9 +25,11 @@ func NewQueueMiddleware(connectionSettings m.ConnSettings, queueName string) (m.
 	}, nil
 }
 
-func declareQueue(err error, connector *RabbitConnector, queueName string) error {
-	_, err = connector.declareQueue(
+func declareQueue(connector *RabbitConnector, queueName string) error {
+	_, err := connector.declareQueue(
 		queueName,
+		false,
+		true,
 		false,
 		amqp.Table{
 			amqp.QueueTypeArg: amqp.QueueTypeQuorum,

@@ -43,12 +43,12 @@ func openConnection(settings m.ConnSettings) (*amqp.Connection, *amqp.Channel, e
 	return conn, ch, nil
 }
 
-func (rc *RabbitConnector) declareQueue(queueName string, autoDelete bool, args amqp.Table) (amqp.Queue, error) {
+func (rc *RabbitConnector) declareQueue(queueName string, autoDelete bool, durable bool, exclusive bool, args amqp.Table) (amqp.Queue, error) {
 	queue, err := rc.channel.QueueDeclare(
 		queueName,  // name
-		true,       // durability
+		durable,    // durability
 		autoDelete, // delete when unused
-		false,      // exclusive
+		exclusive,  // exclusive
 		false,      // no-wait
 		args)
 	if err != nil {
@@ -60,8 +60,8 @@ func (rc *RabbitConnector) declareQueue(queueName string, autoDelete bool, args 
 func (rc *RabbitConnector) declareExchange(exchangeName string) error {
 	err := rc.channel.ExchangeDeclare(
 		exchangeName, // name
-		"direct",     // type
-		false,        // durability
+		"topic",      // type
+		true,         // durability
 		false,        // auto-deleted
 		false,        // internal
 		false,        // no-wait
@@ -87,6 +87,8 @@ func (rc *RabbitConnector) consumeQueue(
 	consumer string,
 	callback func(msg m.Message, ack func(), nack func()),
 ) error {
+	closeChannel := rc.channel.NotifyClose(make(chan *amqp.Error, 1))
+
 	queueChannel, err := rc.channel.Consume(
 		queue,    // queue
 		consumer, // consumer
@@ -99,15 +101,21 @@ func (rc *RabbitConnector) consumeQueue(
 	if err != nil {
 		return m.ErrMessageMiddlewareDisconnected
 	}
-	go func() {
-		for msg := range queueChannel {
-			log.Printf("Received a message: %s", msg.Body)
-			message := m.Message{
-				Body: string(msg.Body),
-			}
-			callback(message, rc.ack(msg), rc.nack(msg))
+	for msg := range queueChannel {
+		log.Printf("Received a message: %s", msg.Body)
+		message := m.Message{
+			Body: string(msg.Body),
 		}
-	}()
+		callback(message, rc.ack(msg), rc.nack(msg))
+	}
+
+	select {
+	case amqpErr, ok := <-closeChannel:
+		if ok && amqpErr != nil {
+			return m.ErrMessageMiddlewareDisconnected
+		}
+	default:
+	}
 	return nil
 }
 
